@@ -1,0 +1,260 @@
+---
+title: "Entregable 3- Grupo 4- Carlos Chávarri"
+author: "Carlos Chávarri"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rio)
+library(DescTools)
+library(ggplot2)
+library(moments)
+library(Rmisc)
+library(e1071)
+library(psych)
+library(dplyr)
+library(gplots)
+library(vcd)
+library(PMCMRplus)
+library(nortest)
+library(car)
+library(stargazer)
+library(lm.beta)
+library(gtools)
+library(jtools)
+library(ggstance)
+library(broom.mixed)
+library(fastDummies)
+library(writexl)
+library(lmtest)
+library(polycor)
+library(ggcorrplot)
+library(matrixcalc)
+library(GPArotation)
+library(lavaan)
+library(BBmisc)
+```
+
+```{r}
+vdem = import("V-Dem-CY-Core-v12.rds")
+View(vdem)
+```
+
+
+
+```{r}
+#1. Variable dependiente - Índice de Democracia Liberal (v2x_libdem)
+
+summary(vdem$v2x_libdem)
+```
+
+```{r}
+str(vdem$v2x_libdem)
+```
+
+#2. Variables independientes
+#2.1. Independencia de la Corte Suprema (v2juhcind_ord)
+```{r}
+str(vdem$v2juhcind_ord)
+summary(vdem$v2juhcind_ord)
+```
+v2juhcind_ord v2juncind_ord  v2peasbecon_ord  v2elembaut_ord  v2mecrit_ord  v2dlcountr_ord
+#2.2. Independencia de las otras cortes (v2juncind_ord)
+```{r}
+str(vdem$v2juncind_ord)
+summary(vdem$v2juncind_ord)
+```
+
+#2.3. Acceso a oportunidades de negocios con el Estado a partir de posición socioeconómica (v2peasbecon_ord)
+```{r}
+str(vdem$v2peasbecon_ord)
+summary(vdem$v2peasbecon_ord)
+```
+#3. variables independientes Gabriela Rollano 
+#3.1.Autonomía de los Organismos Electorales (v2elembaut_ord)
+
+```{r}
+str(vdem$v2elembaut_ord)
+summary(vdem$v2elembaut_ord)
+```
+
+#3.2. Medios de comunicación escritos o transmitidos críticos del gobierno (v2mecrit_ord)
+```{r}
+str(vdem$v2mecrit_ord)
+summary(vdem$v2mecrit_ord)
+```
+
+#3.3. Respeto a Contraargumentos (v2dlcountr_ord)
+```{r}
+str(vdem$v2dlcountr_ord)
+summary(vdem$v2dlcountr_ord)
+```
+
+#4. Armar la base de apoyo
+```{r}
+factor_carlos = subset(vdem, select = c(country_name, year, v2x_libdem, v2juhcind_ord, v2juncind_ord,v2peasbecon_ord,  v2elembaut_ord, v2mecrit_ord, v2dlcountr_ord))
+```
+
+```{r}
+factor_carlos = factor_carlos[factor_carlos$year==2021,]
+```
+
+```{r}
+factor_carlos$country_name = NULL
+factor_carlos$year = NULL
+factor_carlos$v2x_libdem = NULL
+```
+
+#I. Análisis Factorial Exploratorio
+#5. Explorar las correlaciones entre las variables
+```{r}
+corMatrix_c = polycor::hetcor(factor_carlos)$correlations
+corMatrix_c
+```
+Cómo interpretar esta matriz de correlción? 
+
+
+#6. Graficar la matriz de correlaciones
+```{r}
+ggcorrplot(corMatrix_c)
+```
+
+Cómo interpretar este gráfico ? 
+
+
+
+
+
+
+#7. Verificar validez del análisis factorial
+#7.1. Verificar si variables se pueden factorizar 
+
+Overall MSA es mayor a 0.6, por lo que el análisis factorial es factible. x2 
+
+```{r}
+psych::KMO(corMatrix_c)
+```
+#7.2. Descartar una posible matriz de identidad
+Sale FALSE (p-value NO es mayor a 0.05), por lo que el análisis factorial es factible. x2 
+```{r}
+cortest.bartlett(corMatrix_c, n = nrow(factor_carlos))$p.value>0.05
+```
+#7.3. Descartar una posible matriz singular
+Sale FALSE, por lo que el análisis factorial es factible. x2 
+```{r}
+is.singular.matrix(corMatrix_c)
+```
+
+#8. Determinar en cuántos factores se pueden agrupar las variables
+```{r}
+fa.parallel(factor_carlos, fm = "ML", fa = "fa")
+```
+
+#9. Observar las cargas factoriales y ver en qué factores se ubicaría cada variable
+```{r}
+resfa_c <- fa(factor_carlos, nfactors = 1, cor = "cor", rotate = "varimax", fm = "minres")
+print(resfa_c$loadings, cutoff = 0.5)
+```
+#10. Graficar cómo se agrupan las variables
+```{r}
+fa.diagram(resfa_c)
+```
+#11. Evaluar los resultados obtenidos
+#11.1. ¿Qué variables aportaron más a los factores?
+```{r}
+sort(resfa_c$communality)
+```
+#12. Observar los posibles valores proyectados
+#12.1. Para grabar en la base los puntajes de los factores
+```{r}
+factor_carlos$puntaje = resfa_c$scores
+```
+
+#II. Análisis Factorial Confirmatorio
+
+#13. Construir un modelo lineal 
+```{r}
+modeloc<- "factorc=~ v2juhcind_ord+v2juncind_ord+v2peasbecon_ord+v2elembaut_ord+v2mecrit_ord+v2dlcountr_ord"
+```
+
+#14. Crear un objeto para hacer las validaciones 
+
+```{r}
+cfa_fit<- cfa(modeloc, data = factor_carlos, std.lv = TRUE, missing = "fiml")
+
+```
+
+#15. Prepara los tests para las validaciones 
+```{r}
+allParamCFA= parameterEstimates(cfa_fit, standardized = T)
+allFitCFA= as.list(fitMeasures(cfa_fit))
+
+```
+
+#16.Ver si cada variable tiene una buena relación con su factor (p-value<0.05 indica que la variable observable tiene buena relación con su latente)
+
+```{r}
+allParamCFA[allParamCFA$op=="=~",]
+```
+#17.. El ChiSquare es NO significativo? (p_value debe ser mayor a 0.05 para que sea bueno
+
+
+No es signicativo: No hay buen indicio. 
+
+
+```{r}
+allFitCFA[c("chisq", "df", "pvalue")]
+
+```
+
+
+#18. El Índice Tucker Lewi es mayor a 0.9?
+
+Por poco pero sí es mayor. Buen indicio.
+
+```{r}
+allFitCFA$tli # > 0.90
+```
+#19. La Raíz del error cuadrático medio de aproximación es menor a 0.05?
+
+```{r}
+
+allFitCFA[c('rmsea.ci.lower','rmsea' ,'rmsea.ci.upper')] # 0.05 en el Int de Conf?
+```
+
+
+```{r}
+scorescfa=normalize(lavPredict(cfa_fit),
+                    method = "range", 
+                    margin=2, # by column
+                    range = c(0, 10))
+```
+
+```{r}
+factor_carlos$prediccion= scorescfa
+```
+
+
+Veamos ambos scores calculados
+
+```{r}
+ggplot(data=factor_carlos,aes(x=prediccion,y=puntaje)) + geom_point() + theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
